@@ -47,7 +47,7 @@ There are a breadth of ways to create histograms in R. In each tab below you wil
 This is a straightforward way to create multiple histograms with `hist()`. The `par()` function is used to arrange the plots on the page.  The `mfrow` argument specifies the number of rows and columns of plots. 
 
 ```{r}
-par(mfrow=c(3,3))
+#par(mfrow=c(3,3))
 hist(loyn$ABUND)
 hist(loyn$ALT)
 hist(loyn$YR.ISOL)
@@ -55,18 +55,18 @@ hist(loyn$GRAZE)
 hist(loyn$AREA)
 hist(loyn$DIST)
 hist(loyn$LDIST)
-par(mfrow=c(1,1))
+#par(mfrow=c(1,1))
 ```
 
 ## `hist.data.frame()` from `Hmisc`
 
 The `Hmisc` package provides a function `hist.data.frame()` that can be used to create multiple histograms, which can be called by simply using `hist()`. You may need to tweak the `nclass` argument to get the desired number of bins, as the default may not look appropriate.
 
-```{r}
+```{r eval=FALSE}
 #| message: false
 # install.packages("Hmisc")
 library(Hmisc)
-hist(loyn, nclass = 20)
+hist(loyn, nclass = 50)
 ```
 
 
