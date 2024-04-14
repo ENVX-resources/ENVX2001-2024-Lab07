@@ -1,0 +1,531 @@
+---
+title: "ENVX2001 Lab 07 - Regression model development"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+:::{.callout-tip}
+Please work on this exercise by creating your own R Markdown file.
+:::
+
+
+## Exercise 1: Bird abundance
+
+This is the *same* dataset used in the lecture.
+
+Fragmentation of forest habitat has an impact of wildlife abundance.  This study looked at the relationship between bird abundance (bird ha^-1^) and the characteristics of forest patches at 56 locations in SE Victoria.  
+
+The predictor variables are:
+
+- `ALT` Altitude (m) 
+- `YR.ISOL` Year when the patch was isolated (years) 
+-	`GRAZE` Grazing (coded 1-5 which is light to heavy) 
+-	`AREA` Patch area (ha) 
+-	`DIST` Distance to nearest patch (km) 
+-	`LDIST` Distance to largest patch (km) 
+
+Import the data from the "Loyn" tab in the MS Excel file.
+```{r}
+library(readxl)
+loyn <- read_xlsx("mlr.xlsx", "Loyn")
+```
+
+
+Often, the first step in model development is to examine the data.  This is a good way to get a feel for the data and to identify any issues that may need to be addressed. In this case, we will examine the data using histograms and a correlation matrix.
+
+### Histograms
+
+There are a breadth of ways to create histograms in R. In each tab below you will find some different ways to create the same plot outputs.
+
+:::{.panel-tabset}
+
+## `hist()`
+
+This is a straightforward way to create multiple histograms with `hist()`. The `par()` function is used to arrange the plots on the page.  The `mfrow` argument specifies the number of rows and columns of plots. 
+
+```{r}
+par(mfrow=c(3,3))
+hist(loyn$ABUND)
+hist(loyn$ALT)
+hist(loyn$YR.ISOL)
+hist(loyn$GRAZE)
+hist(loyn$AREA)
+hist(loyn$DIST)
+hist(loyn$LDIST)
+par(mfrow=c(1,1))
+```
+
+## `hist.data.frame()` from `Hmisc`
+
+The `Hmisc` package provides a function `hist.data.frame()` that can be used to create multiple histograms, which can be called by simply using `hist()`. You may need to tweak the `nclass` argument to get the desired number of bins, as the default may not look appropriate.
+
+```{r}
+#| message: false
+# install.packages("Hmisc")
+library(Hmisc)
+hist(loyn, nclass = 20)
+```
+
+
+## `ggplot()`
+
+A more modern approach is to use `ggplot()` with `facet_wrap()` to arrange multiple plots on a single page. To do this, the `pivot_longer()` function from the `tidyr` package is used to reshape the data into a tidy format.
+
+```{r}
+#| message: false
+# tidy the data
+loyn_tidy <- pivot_longer(loyn, cols = everything())
+
+# plot
+ggplot(loyn_tidy, aes(x = value)) + 
+  geom_histogram() + 
+  facet_wrap(~name, scales = "free") +
+  theme_bw()
+```
+
+## `ggplot()` with `dplyr`
+
+Here we use the pipe operator `%>%` from `dplyr` to chain together a series of commands. The pipe operator takes the output of the command on the left and passes it to the command on the right (or below) the pipe. This means that we can create a series of commands that are executed in order. 
+
+```{r}
+#| message: false
+loyn %>% 
+  pivot_longer(cols = everything()) %>% 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_wrap(~name, scales = "free") +
+  theme_bw()
+```
+
+:::
+
+:::{.callout-warning}
+## Question 1
+Comment on the histograms in terms of leverage. *Hint: what is the relationship between leverage and skewness?*
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+The histograms of `AREA`, `DIST` and `LDIST` are very skewed. The high values would have high leverage, this means that these would cause the residuals to be skewed. These would be candidates for transformation.  
+:::
+
+### Correlation matrix
+
+Calculate the correlation matrix using `cor(Loyn)`.
+
+```{r}
+cor(loyn)
+```
+
+:::{.callout-warning}
+## Question 2
+Which independent variables are useful for predicting the dependent variable abundance? Is there evidence for multi-collinearity? 
+:::
+
+```{r corLoyn, eval=F, echo=F}
+cor(loyn)
+```
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Some of the predictors are useful, but AREA has a low r.  
+
+The correlation between `GRAZE` and `YR.ISOL` is quite high (r = -0.63556710), suggesting multi-collinearity which may influence the model. If the relationship between these two variables was stronger, we would remove one of the variables to prevent this collinearity from affecting the model.
+
+*Note: For more information on collinearity and how it may impact the model, see Quinn & Keough p 127.*
+:::
+
+### Plotting correlation
+
+Examine correlations visually using `pairs()` or `corrplot()` from the `corrplot` package.
+
+:::{.panel-tabset}
+
+## Scatterplot matrix
+
+```{r}
+pairs(loyn)
+```
+
+
+## Correlation matrix
+
+```{r}
+#| message: false
+library(corrplot)
+corrplot(cor(loyn))
+```
+
+
+:::
+
+:::{.callout-warning}
+## Question 3
+Are there any trends visible from the plots?
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Not really; the pairs plot reflects the strength of the linear relationship between each of the variables. There may be some stronger relationships occurring, but it is evident a few of the variables are skewed so it is harder to distinguish within the plots.
+:::
+
+
+:::{.callout-tip}
+We can also bring in variance inflation factors (VIF) to help us identify multi-collinearity, but that is done only after we have selected a model.
+:::
+
+### Transformations
+
+The AREA predictor has a small number of observations with very large values.  Apply a log~10~ transformation and label the new variable `Loyn$L10AREA`.  
+
+```{r}
+#| eval: false
+loyn$L10AREA <- log10(loyn$AREA)
+```
+
+:::{.callout-warning}
+## Question 4
+Why are we transforming AREA?
+:::
+
+
+::: {.content-visible when-profile="solution"}
+## Answer
+You do this to stabilise the variance of the regression to manage the leverage of the outliers in the variable. This reduces the skew.
+L10AREA is more likely to be a significant predictor.  
+:::
+
+:::{.callout-warning}
+## Question 5
+Re-run `pairs(Loyn)` and create a histogram using the transformed value of AREA, how do the plots look?
+:::
+
+
+
+```{r}
+#| eval: false
+hist(loyn$L10AREA)
+pairs(loyn)
+``` 
+
+::: {.content-visible when-profile="solution"}
+## Answer
+- Histogram looks better, less skewed
+- Pairs plot shows a trend between ABUND and L10AREA
+:::
+
+:::{.callout-warning}
+## Question 6
+In preparation for modelling, transform the remaining skewed variables, DIST and LDIST the same way you did for AREA and examine the histogram and pairs plots using these new variables.  
+:::
+
+Make sure you end up with two new variables labelled `loyn$L10DIST` and `loyn$L10LDIST`. 
+
+
+
+```{r}
+#| eval: false
+#| include: false
+loyn$L10DIST <- log10(loyn$DIST)
+hist(loyn$L10DIST)
+
+loyn$L10LDIST <- log10(loyn$LDIST)
+hist(loyn$L10LDIST)
+
+pairs(loyn)
+``` 
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Histogram for both look better, less skewed
+Pairs plot shows potential trend between ABUND and L10DIST, and ABUND with L10LDIST compared to untransformed DIST and LDIST
+:::
+
+
+## Exercise 2: Modelling bird abundance
+
+We will now use the transformed data in `loyn` for this exercise. If you have not already figured out how to perform the transformation, or if something is wrong, you may use the `loyn` tab in the `mlr.xlsx` MS Excel document. Alternatively, the code to convert the data is below.
+
+```{r}
+# reset the data import just in case it has been modified
+loyn <- read_xlsx("mlr.xlsx", "Loyn")
+# make transformations
+
+loyn <- loyn %>%
+  mutate(L10AREA = log10(AREA),
+    L10DIST = log10(DIST),
+    L10LDIST = log10(LDIST))
+
+# check
+glimpse(loyn)
+```
+
+### Best single predictor?
+
+:::{.callout-warning}
+## Question 1
+Obtain the correlation between ABUND and all of the predictor variables using `cor()`.  Based on these, what would you expect to be the best single predictor of ABUND?  
+:::
+
+```{r}
+#| eval: false
+cor(loyn)
+```
+
+::: {.content-visible when-profile="solution"}
+## Answer
+
+```{r}
+cor(loyn)
+```
+
+The best single predictor would be `L10AREA` as this has the highest *r* (r = 0.74)
+:::
+
+
+### Assumptions and interpretation
+
+:::{.callout-warning}
+## Question 2
+Use multiple linear regression to see whether ABUND can be predicted from L10AREA and GRAZE. Are the assumptions met? Is there a significant relationship? *Note: we are using these 2 predictors as they have the largest absolute correlations. 
+Use `lm()` and specify the model as `ABUND ~ L10AREA + GRAZE`.*
+:::
+
+
+```{r}
+#| eval: false
+lm.mod1 <- lm(ABUND~GRAZE + L10AREA, data=loyn)
+
+par(mfrow=c(2,2))
+plot(lm.mod1)
+par(mfrow=c(1,1))
+
+summary(lm.mod1)
+```
+
+::: {.content-visible when-profile="solution"}
+## Answer
+
+```{r mlmod}
+lm.mod1 <- lm(ABUND~GRAZE + L10AREA, data=loyn)
+
+par(mfrow=c(2,2))
+plot(lm.mod1)
+par(mfrow=c(1,1))
+
+summary(lm.mod1)
+```
+
+This is a significant model as both b1 and b2 are significant and the model is significant.
+
+The residuals look reasonable. They are approximately normally distributed (both right hand plots), but possibly the variance is not totally constant and there are possibly a few values with high leverage (left hand plots). 
+:::
+
+
+:::{.callout-warning}
+## Question 3
+How good is the model based on the (i) *r*^2^ (ii) adjusted *r*^2^? Use `summary()`.  
+:::
+
+```{r}
+#| eval: false
+summary(lm.mod1)$r.squared
+summary(lm.mod1)$adj.r.squared  
+```
+
+::: {.content-visible when-profile="solution"}
+## Answer
+The Adjusted *r*^2^ is lower than the *r*^2^, but we would opt for the adjusted *r*^2^ as it takes the number of predictors into account. Overall the model is ok, explaining 64.0% of variation in Abundance.
+:::
+
+:::{.callout-warning}
+## Question 4
+Which variable(s) has the most significant effect(s)? *(Refer specifically to the t probabilities in the table of predictors and their estimated parameters or coefficients in the output of `summary()`)*.  Interpret the p-values in terms of dropping predictor variables.  
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Both `L10AREA` and `GRAZE` are highly significant, `L10AREA` is the most significant. 
+In terms of effect, a 1 unit change in `GRAZE` results in a -2.9 decrease in abundance (with `L10AREA` remaining constant), while a 1 unit change in `L10AREA`, (therefore a 10 unit change in `AREA`) results in a 6.9 increase in abundance (`GRAZE` holding constant). 
+:::
+
+:::{.callout-warning}
+## Question 5
+Repeat the multiple regression, but this time include YRS.ISOL as a predictor variable (it has the 3rd largest absolute correlation). This will allow you to assess the effect of YRS.ISOL with the other variables taken into account.  
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+```{r}
+lm.mod2 <- lm(ABUND ~ GRAZE + L10AREA + YR.ISOL, data=loyn)
+```
+:::
+
+:::{.callout-warning}
+## Question 6
+Check assumptions, do the residuals look ok? If you are happy with the assumptions, you can proceed to interpret the model output.
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+```{r}
+par(mfrow=c(2,2))
+plot(lm.mod2)
+par(mfrow=c(1,1))
+```
+:::
+
+::: {.content-visible when-profile="solution"}
+```{asis, echo = F, eval = F}
+**ANSWER**
+The residuals look OK, but YR.ISOL is borderline significant (p = 0.0768). 
+```
+:::
+
+:::{.callout-warning}
+## Question 7
+Compare the *r*^2^ and adjusted *r*^2^ values with those you calculated for the 2 predictor model, Which is the better model?  Why?
+:::
+
+
+```{r}
+#| eval: false
+summary(lm.mod2)
+```
+
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Both of these are greater than for model in step 3, so this is a better model.
+:::
+
+
+## At your own time: California streamflow 
+
+:::{.callout-note}
+This additional exercise can be done at your own time. Most of the code are provided. You will need to run the code and interpret the results.
+:::
+
+The following dataset contains 43 years of annual precipitation measurements (in mm) taken at (originally) 6 sites in the Owens Valley in California. I have reduced this to three variables labelled `L10APSAB` (Lake Sabrina), `L10OBPC` (Big Pine Creek), `L10OPRC` (Rock Creek), and the dependent variable stream runoff volume (measured in ML/year) at a site near Bishop, California (labelled `L10BSAAM`). There is also a variable `Year` but you can ignore this.
+
+Note the variables have already been log-transformed to increase normality of the residuals in the regressions. 
+
+Start with a full model and manually remove the variables one at a time, checking every time whether removal of a variable actually improves the model.  
+
+```{r readDataStream}
+# read in the data
+s.data <- read_xlsx("mlr.xlsx", "California_streamflow")
+names(s.data)
+```
+
+```{r Exercise1, eval=T, echo=T}
+s.mod_full <-lm(L10BSAAM~L10APSAB + L10OBPC + L10OPRC, data=s.data)
+s.mod_full <-lm(L10BSAAM~., data=s.data) ## you can also use the . to indicate use all variables
+summary(s.mod_full)
+```
+
+
+### Partial F-Tests
+
+The above analysis tells us that both `L10OBPC` & `L10OPRC` are significant, according to the t-test, in the model and `L10APSAB` is not?  This involves performing Partial F-Tests as discussed in the lecture.  
+
+This can be done in **R** by using `anova()` on two model objects. To be able to compare the models and run the anova, you need to make objects of all the possible model combinations you want to compare.  
+
+```{r PartialFtests1, echo=T, eval = F}
+s.mod_reduced <- lm(L10BSAAM ~ L10OPRC + L10OBPC, data=s.data)
+anova(s.mod_reduced, s.mod_full)
+```
+
+The last row gives the results of the partial F-test.  
+
+:::{.callout-warning}
+## Question 1
+Should we remove `L10APSAB` from the model?
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Yes, we should remove L10APSAB as the p-value is > 0.05 and opt for the simpler model.
+:::
+
+:::{.callout-warning}
+## Question 2
+Is the p-value for the f-test the same as for the t-test? 
+:::
+
+::: {.content-visible when-profile="solution"}
+## Answer
+Yes, P-values for the t-statistic and for the Partial F-statistic are related (Partial F = t^2^)
+:::
+
+:::{.callout-warning}
+## Question 3
+Write out the hypotheses you are testing.  
+:::
+
+
+::: {.content-visible when-profile="solution"}
+## Answer
+
+H~0~: $\beta_{L10APSAB} = 0$  
+H~1~: $\beta_{L10APSAB} \neq 0$  
+:::
+
+Perform a Partial F-Test to work out if the removal of `L10APSAB` and `L10OBPC` improves upon the full model.
+
+```{r}
+s.mod_reduced2  <- lm(L10BSAAM ~ L10APSAB + L10OBPC,data=s.data)
+anova(s.mod_reduced2, s.mod_full)
+```
+
+:::{.callout-warning}
+## Question 4
+Which variable should be added to the model containing L10OPRC?
+:::
+
+
+::: {.content-visible when-profile="solution"}
+## Answer
+L10APSAB does not improve the model with only L10OPRC ($\beta_{L10APSAB} = 0$), so we can say that we should add L10OBPC to the model containing L10OPRC.   
+
+Remember: H0: No difference between the models, so choose the simplest
+          H1: Full model is better
+:::
+
+
+:::{.callout-warning}
+## Question 5
+Could things be even simpler? Perform a partial F-Test to see if a model containing L10OPRC alone could be suitable.  
+:::
+
+```{r SolutionPartialF_again, echo = T, eval = F}
+s.mod_reduced3  <- lm(L10BSAAM ~ L10OPRC,data=s.data)
+anova(s.mod_reduced3, s.mod_full)
+```
+
+
+::: {.content-visible when-profile="solution"}
+## Answer
+
+Fitting with only L10OPRC does not improve model fit (P<0.05) and so we can conclude that the better model is the one with L10OBPC and L10OPRC as predictors, with L10APSAB removed. 
+:::
+
+:::{.callout-warning}
+## Question 6
+What is your optimal model?
+:::
+
+
+::: {.content-visible when-profile="solution"}
+## Answer
+
+The best model is: $L10BSAAM = \beta_0 + \beta_1 L10OPRC + \beta_2 L10OBPC + error$
+:::
+
+<hr>
+
+That's it for today! Great work fitting simple and multiple linear regression! Next week we jump into stepwise selection and predictive modelling! 
+
